@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import re
 
 from ogn.parser.utils import FPM_TO_MS, HPM_TO_DEGS, createTimestamp, KNOTS_TO_MS, KPH_TO_MS, FEETS_TO_METER, INCH_TO_MM, fahrenheit_to_celsius, CheapRuler, normalized_quality
 from ogn.parser.exceptions import AprsParseError
@@ -10,6 +11,7 @@ server_timestamp = None
 
 dstcall_beacontype_mapping = {
     'OGCAPT': 'capturs',
+    'OGNDSC': 'dsc',
     'OGNFNT': 'fanet',
     'OGFLR': 'flarm',
     'OGFLR6': 'flarm',
@@ -145,6 +147,16 @@ def parse(aprs_message, reference_timestamp=None, calculate_relations=False, use
             'aprs_type': 'comment'})
     else:
         raise ValueError("Raised unreachable exception")
+
+    if message.get('beacon_type') == 'dsc' and message['aprs_type'] == 'position':
+        # DSC proposal: provenance of the measurement timestamp, not a UTC accuracy claim.
+        codes = re.findall(r'(?:^|\s)dscT(\S*)(?=\s|$)', message.get('user_comment', ''))
+        if len(codes) == 1 and codes[0] in ('O', 'G', 'N', 'R'):
+            message['dsc_time_source'] = {
+                'O': 'device_fix', 'G': 'android_gnss_clock',
+                'N': 'android_network_clock', 'R': 'other_reconstruction',
+            }[codes[0]]
+            message['dsc_time_reconstructed'] = codes[0] != 'O'
 
     if message['aprs_type'].startswith('position') and calculate_relations is True:
         positions[message['name']] = (message['longitude'], message['latitude'])
